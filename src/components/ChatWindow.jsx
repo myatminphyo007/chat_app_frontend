@@ -5,7 +5,7 @@ import axiosInstance from "../utils/axiosInstance";
 import { getChatName, getChatImage } from "../utils/chatHelpers";
 
 const ChatWindow = () => {
-    const { user, selectedChat, setSelectedChat, socket } = useChat();
+    const { user, selectedChat, setSelectedChat, socket, notifications, setNotifications, chats, setChats } = useChat();
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
     const [loading, setLoading] = useState(false);
@@ -29,6 +29,10 @@ const ChatWindow = () => {
             }
         };
         fetchMessages();
+
+        // clear notifications when opening a chat
+        setNotifications(prev => prev.filter(n => n.chat._id !== selectedChat._id));
+
     }, [selectedChat]);
 
     useEffect(() => {
@@ -41,11 +45,32 @@ const ChatWindow = () => {
         const messageReceived = (newMsg) => {
             if (selectedChat && selectedChat._id === newMsg.chat._id) {
                 setMessages((prev) => [...prev, newMsg]);
+            } else {
+                // store ALL notifications for counting
+                setNotifications((prev) => [newMsg, ...prev]);
+
+                setChats((prev) => {
+                    const exists = prev.find(c => c._id === newMsg.chat._id);
+                    if (exists) {
+                        const updated = prev.map(c =>
+                            c._id === newMsg.chat._id
+                                ? { ...c, latestMessage: newMsg }
+                                : c
+                        );
+                        return [
+                            updated.find(c => c._id === newMsg.chat._id),
+                            ...updated.filter(c => c._id !== newMsg.chat._id)
+                        ];
+                    }
+                    return [newMsg.chat, ...prev];
+                });
             }
-        }
-        socket.current.on("message received", messageReceived)
+        };
+
+        socket.current.on("message received", messageReceived);
         return () => socket.current.off("message received", messageReceived);
-    }, [selectedChat])
+
+    }, [selectedChat]);
 
     const sendMessage = async () => {
         if (!newMessage.trim()) return;
@@ -57,7 +82,21 @@ const ChatWindow = () => {
                 { headers: { Authorization: `Bearer ${user.token}` } }
             );
             setMessages([...messages, data]);
-            socket.current?.emit("new message", data)
+            socket.current?.emit("new message", data);
+
+            // update latest message in sidebar
+            setChats((prev) => {
+                const updated = prev.map(c =>
+                    c._id === selectedChat._id
+                        ? { ...c, latestMessage: data }
+                        : c
+                );
+                return [
+                    updated.find(c => c._id === selectedChat._id),
+                    ...updated.filter(c => c._id !== selectedChat._id)
+                ];
+            });
+
             setNewMessage("");
         } catch (err) {
             console.error(err);
@@ -85,20 +124,14 @@ const ChatWindow = () => {
         <div className="flex-1 h-full flex flex-col bg-white dark:bg-gray-900">
             {/* Header */}
             <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-                {/* Back button - mobile only */}
                 <button
                     onClick={() => setSelectedChat(null)}
                     className="md:hidden text-gray-500 dark:text-gray-400"
                 >
                     <ArrowLeft size={20} />
                 </button>
-
                 {image ? (
-                    <img
-                        src={image}
-                        alt={name}
-                        className="w-9 h-9 rounded-full object-cover"
-                    />
+                    <img src={image} alt={name} className="w-9 h-9 rounded-full object-cover" />
                 ) : (
                     <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 font-semibold text-sm">
                         {name?.[0]}
@@ -122,11 +155,10 @@ const ChatWindow = () => {
                                 className={`flex ${isMe ? "justify-end" : "justify-start"}`}
                             >
                                 <div
-                                    className={`max-w-xs px-4 py-2 rounded-2xl text-sm ${
-                                        isMe
+                                    className={`max-w-xs px-4 py-2 rounded-2xl text-sm ${isMe
                                             ? "bg-blue-500 text-white rounded-br-none"
                                             : "bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-none"
-                                    }`}
+                                        }`}
                                 >
                                     {msg.content}
                                 </div>

@@ -6,7 +6,7 @@ import { getChatName, getChatImage } from "../utils/chatHelpers";
 import GroupModal from "./GroupModal";
 
 const Sidebar = () => {
-    const { user, chats, setChats, setSelectedChat, selectedChat } = useChat();
+    const { user, chats, setChats, setSelectedChat, selectedChat, notifications, setNotifications } = useChat();
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState("");
     const [searchResults, setSearchResults] = useState([]);
@@ -36,12 +36,7 @@ const Sidebar = () => {
     const handleSearch = async (e) => {
         const value = e.target.value;
         setSearch(value);
-
-        if (!value) {
-            setSearchResults([]);
-            return;
-        }
-
+        if (!value) { setSearchResults([]); return; }
         try {
             setSearching(true);
             const { data } = await axiosInstance.get(`/api/users?search=${value}`, {
@@ -73,13 +68,19 @@ const Sidebar = () => {
         }
     };
 
-    // *** delete chat or group ***
-    const deleteChat = async (e, chat) => {
-        e.stopPropagation(); // prevent opening the chat when clicking delete
+    const handleChatClick = (chat) => {
+        setSelectedChat(chat);
+        setNotifications(prev => prev.filter(n => n.chat._id !== chat._id));
+    };
 
+    const getNotifCount = (chatId) => {
+        return notifications.filter(n => n.chat._id === chatId).length;
+    };
+
+    const deleteChat = async (e, chat) => {
+        e.stopPropagation();
         const confirm = window.confirm(`Are you sure you want to delete "${getChatName(chat, user)}"?`);
         if (!confirm) return;
-
         try {
             if (chat.isGroupChat) {
                 await axiosInstance.delete(`/api/chats/group/${chat._id}`, {
@@ -90,26 +91,17 @@ const Sidebar = () => {
                     headers: { Authorization: `Bearer ${user.token}` },
                 });
             }
-
-            // remove from chats list
             setChats(chats.filter(c => c._id !== chat._id));
-
-            // clear selected chat if it was deleted
-            if (selectedChat?._id === chat._id) {
-                setSelectedChat(null);
-            }
+            if (selectedChat?._id === chat._id) setSelectedChat(null);
         } catch (err) {
             alert(err.response?.data?.message || "Could not delete chat");
         }
     };
 
-    // *** check if user can delete ***
     const canDelete = (chat) => {
         if (chat.isGroupChat) {
-            // only admin can delete group
             return chat.groupAdmin?._id === user._id || chat.groupAdmin === user._id;
         }
-        // any member can delete 1-on-1 chat
         return true;
     };
 
@@ -150,11 +142,7 @@ const Sidebar = () => {
                                     className="flex items-center gap-3 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
                                 >
                                     {u.profileImage ? (
-                                        <img
-                                            src={u.profileImage}
-                                            alt={u.name}
-                                            className="w-8 h-8 rounded-full object-cover"
-                                        />
+                                        <img src={u.profileImage} alt={u.name} className="w-8 h-8 rounded-full object-cover" />
                                     ) : (
                                         <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 font-semibold text-xs">
                                             {u.name?.[0]}
@@ -181,11 +169,12 @@ const Sidebar = () => {
                     chats.map((chat) => {
                         const name = getChatName(chat, user);
                         const image = getChatImage(chat, user);
+                        const notifCount = getNotifCount(chat._id);
 
                         return (
                             <div
                                 key={chat._id}
-                                onClick={() => setSelectedChat(chat)}
+                                onClick={() => handleChatClick(chat)}
                                 className={`group flex items-center gap-3 p-3 cursor-pointer border-b border-gray-100 dark:border-gray-700 transition-all
                                     ${selectedChat?._id === chat._id
                                         ? "bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500"
@@ -193,26 +182,31 @@ const Sidebar = () => {
                                     }`}
                             >
                                 {image ? (
-                                    <img
-                                        src={image}
-                                        alt={name}
-                                        className="w-10 h-10 rounded-full object-cover"
-                                    />
+                                    <img src={image} alt={name} className="w-10 h-10 rounded-full object-cover" />
                                 ) : (
                                     <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 font-semibold text-sm">
                                         {name?.[0]}
                                     </div>
                                 )}
                                 <div className="flex-1 min-w-0">
-                                    <p className="font-medium text-sm text-gray-800 dark:text-gray-200">{name}</p>
+                                    <p className={`text-sm ${notifCount > 0 ? "font-bold text-gray-900 dark:text-white" : "font-medium text-gray-800 dark:text-gray-200"}`}>
+                                        {name}
+                                    </p>
                                     {chat.latestMessage && (
-                                        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
+                                        <p className={`text-xs truncate ${notifCount > 0 ? "text-black-700 dark:text-gray-300 font-medium" : "text-gray-400 dark:text-gray-500"}`}>
                                             {chat.latestMessage.content}
                                         </p>
                                     )}
                                 </div>
 
-                                {/* *** delete button - shows on hover, only if allowed *** */}
+                                {/* notification badge */}
+                                {notifCount > 0 && (
+                                    <span className="bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 font-medium">
+                                        {notifCount}
+                                    </span>
+                                )}
+
+                                {/* delete button */}
                                 {canDelete(chat) && (
                                     <button
                                         onClick={(e) => deleteChat(e, chat)}
